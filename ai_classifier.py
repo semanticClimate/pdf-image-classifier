@@ -1,32 +1,47 @@
-import os # Keep os import, it's generally useful
+import os
 import json
 import logging
-import base64
 import io
 import time
 import random
 import numpy as np
 from PIL import Image
-from google import genai
-from google.genai import types
-# import streamlit as st # You can remove this import from here if you only want to use the passed key
+import google.generativeai as genai
+import streamlit as st
+
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
 
     def __init__(self, api_key=None):
         self.logger = logging.getLogger(__name__)
-
-        # This ensures that if api_key is None, it explicitly raises an error,
-        # not attempting to find it from environment variables or st.secrets.
-        if not api_key:
-            raise ValueError("No Gemini API key provided. Please enter your API key in the Streamlit sidebar.")
-
-        self.api_key = api_key
-        self.client = genai.Client(api_key=self.api_key)
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.model = None
         self.confidence_score = 0.0
+        self.api_configured = False
 
-        # Define comprehensive figure categories
+        # Try to configure Gemini API
+        if self.api_key:
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel("gemini-1.5-flash")
+                
+                # Test the API with a simple request
+                test_response = self.model.generate_content("Test connection")
+                self.api_configured = True
+                self.logger.info("Gemini API configured successfully")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to configure Gemini API: {str(e)}")
+                self.api_configured = False
+                if "API_KEY_INVALID" in str(e) or "401" in str(e):
+                    raise ValueError(f"Invalid Gemini API key: {str(e)}")
+                else:
+                    st.warning(f"Gemini API configuration failed: {str(e)}. Using fallback classification.")
+        else:
+            self.logger.warning("No Gemini API key provided. Using fallback classification only.")
+            st.warning("⚠️ No Gemini API key provided. Using basic heuristic classification. For better results, please provide a valid Gemini API key.")
+
         self.figure_categories = {
             "bar_chart": "Bar Chart - Shows data using rectangular bars",
             "pie_chart": "Pie Chart - Circular chart showing proportions",
