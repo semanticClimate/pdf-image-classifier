@@ -73,34 +73,32 @@ class AIFigureClassifier:
                 image.save(img_buffer, format='PNG')
                 img_buffer.seek(0)
                 image_bytes = img_buffer.read()
-
-                response = self.model.generate_content([
-                    {"mime_type": "image/png", "data": image_bytes},
-                    prompt
-                ])
-
-                
+                # Gemini expects images to be passed as PIL.Image.Image directly, not bytes
+                # Also: the prompt must go **before** the image
+                response = self.model.generate_content(
+                    [self._create_classification_prompt(), Image.open(io.BytesIO(image_bytes))]
+                )
                 if response.text and response.text.strip().startswith("{"):
                     try:
                         result = json.loads(response.text)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing failed: {e}")
                         return self._fallback_classification(image)
-                        
-                    # Handle both dict and list responses
+                    
                     if isinstance(result, list) and len(result) > 0:
                         result = result[0]
-                    self.confidence_score = result.get('confidence', 0.5) if isinstance(result, dict) else 0.5
-                    
+                    self.confidence_score = result.get('confidence', 0.5)
+                        
                     return {
-                        'classification': result.get('type', 'unknown') if isinstance(result, dict) else 'unknown',
+                        'classification': result.get('type', 'unknown'),
                         'confidence': self.confidence_score,
-                        'description': result.get('description', 'No description available') if isinstance(result, dict) else 'No description available',
-                        'details': result.get('details', {}) if isinstance(result, dict) else {},
-                        'reasoning': result.get('reasoning', '') if isinstance(result, dict) else ''
+                        'description': result.get('description', 'No description available'),
+                        'details': result.get('details', {}),
+                        'reasoning': result.get('reasoning', '')
                     }
-                else:
-                    return self._fallback_classification(image)
+            else:
+                return self._fallback_classification(image)
+
                     
             except Exception as e:
                 error_msg = str(e)
