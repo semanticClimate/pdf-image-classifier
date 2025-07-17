@@ -1,0 +1,11 @@
+streamlit
+opencv-python
+numpy
+pandas
+Pillow
+PyMuPDF
+reportlab
+requests
+scikit-learn
+joblib
+google-generativeai
