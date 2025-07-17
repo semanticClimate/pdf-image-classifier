@@ -25,6 +25,8 @@ if 'processing_complete' not in st.session_state:
     st.session_state.processing_complete = False
 if 'source_info' not in st.session_state:
     st.session_state.source_info = "PDF Document"
+if 'api_key_status' not in st.session_state:
+    st.session_state.api_key_status = None
 
 
 def main():
@@ -42,20 +44,48 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # API Key input section
-        with st.expander("🔑 Gemini API Key", expanded=False):
-            st.markdown("Provide your own Gemini API key for AI classification:")
+        # API Key input section with improved validation
+        with st.expander("🔑 Gemini API Key", expanded=True):
+            st.markdown("""
+            **For best results, provide your Gemini API key:**
+            1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+            2. Create a new API key
+            3. Paste it below
+            """)
+            
             user_api_key = st.text_input(
                 "API Key", 
                 type="password",
                 placeholder="Enter your Gemini API key...",
                 help="Get your API key from https://aistudio.google.com/app/apikey"
             )
+            
+            # Test API key button
             if user_api_key:
-                st.session_state.user_api_key = user_api_key
-                st.success("✅ API key provided!")
-            elif 'user_api_key' not in st.session_state:
-                st.info("Using default API key (may have rate limits)")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔍 Test API Key", type="secondary"):
+                        test_api_key(user_api_key)
+                
+                with col2:
+                    if st.button("💾 Save Key", type="primary"):
+                        st.session_state.user_api_key = user_api_key
+                        st.session_state.api_key_status = "saved"
+                        st.success("✅ API key saved!")
+                        st.rerun()
+            
+            # Display API key status
+            if hasattr(st.session_state, 'user_api_key') and st.session_state.user_api_key:
+                if st.session_state.api_key_status == "valid":
+                    st.success("✅ API key is valid and ready to use!")
+                elif st.session_state.api_key_status == "invalid":
+                    st.error("❌ API key is invalid. Please check and try again.")
+                elif st.session_state.api_key_status == "saved":
+                    st.info("💾 API key saved. Click 'Test API Key' to validate.")
+                else:
+                    st.info("🔑 API key provided. Click 'Test API Key' to validate.")
+            else:
+                st.warning("⚠️ No API key provided. Will use basic heuristic classification.")
         
         st.header("📁 PDF Input Options")
 
@@ -82,11 +112,14 @@ def main():
                 help="Enter the direct URL to a PDF file")
 
             if pdf_url:
-                if st.button("Validate URL", type="secondary"):
-                    validate_pdf_url(pdf_url)
-
-                if st.button("Process PDF from URL", type="primary"):
-                    process_pdf_from_url(pdf_url)
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔍 Validate URL", type="secondary"):
+                        validate_pdf_url(pdf_url)
+                
+                with col2:
+                    if st.button("🚀 Process PDF", type="primary"):
+                        process_pdf_from_url(pdf_url)
 
     # Main content area
     if st.session_state.processing_complete and st.session_state.extracted_figures:
@@ -95,26 +128,62 @@ def main():
         display_welcome_screen()
 
 
+def test_api_key(api_key):
+    """Test the provided API key."""
+    try:
+        with st.spinner("Testing API key..."):
+            # Test by creating a classifier instance
+            classifier = AIFigureClassifier(api_key=api_key)
+            
+            if classifier.is_api_available():
+                st.session_state.api_key_status = "valid"
+                st.success("✅ API key is valid and working!")
+            else:
+                st.session_state.api_key_status = "invalid"
+                st.error("❌ API key validation failed.")
+                
+    except ValueError as e:
+        st.session_state.api_key_status = "invalid"
+        st.error(f"❌ API key error: {str(e)}")
+    except Exception as e:
+        st.session_state.api_key_status = "invalid"
+        st.error(f"❌ Unexpected error: {str(e)}")
+
+
 def process_pdf(uploaded_file, from_url=False, url=None):
     """Process the uploaded PDF file and extract/classify figures."""
+    
+    # Check if we have a valid API key
+    api_key = st.session_state.get('user_api_key')
+    if not api_key:
+        st.info("ℹ️ Processing without API key - using heuristic classification")
+    elif st.session_state.get('api_key_status') != 'valid':
+        st.warning("⚠️ API key not validated - results may vary")
+    
     try:
         # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False,
-                                         suffix='.pdf') as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
 
         # Initialize components
         extractor = PDFFigureExtractor()
         
-        # Initialize AI classifier with user's API key if provided
-        user_api_key = st.session_state.get('user_api_key')
+        # Initialize AI classifier with detailed error handling
         try:
-            classifier = AIFigureClassifier(api_key=user_api_key)
-            if user_api_key:
-                st.info("🔑 Using your provided API key for classification")
+            classifier = AIFigureClassifier(api_key=api_key)
+            
+            # Show classification method being used
+            if classifier.is_api_available():
+                st.success("🤖 Using Gemini AI for advanced classification")
+            else:
+                st.info("🔧 Using heuristic classification (faster but less accurate)")
+                
         except ValueError as e:
-            st.error(f"API key error: {str(e)}")
+            st.error(f"❌ Classifier initialization failed: {str(e)}")
+            return
+        except Exception as e:
+            st.error(f"❌ Unexpected error initializing classifier: {str(e)}")
             return
 
         # Progress indicators
@@ -122,54 +191,63 @@ def process_pdf(uploaded_file, from_url=False, url=None):
         status_text = st.empty()
 
         # Extract figures
-        status_text.text("Extracting figures from PDF...")
+        status_text.text("📄 Extracting figures from PDF...")
         progress_bar.progress(25)
 
-        extracted_figures = extractor.extract_figures(tmp_file_path)
+        try:
+            extracted_figures = extractor.extract_figures(tmp_file_path)
+        except Exception as e:
+            st.error(f"❌ Error extracting figures: {str(e)}")
+            os.unlink(tmp_file_path)
+            return
 
         if not extracted_figures:
-            st.warning("No figures found in the PDF document.")
+            st.warning("⚠️ No figures found in the PDF document.")
             os.unlink(tmp_file_path)
             return
 
         progress_bar.progress(50)
-        status_text.text(
-            f"Found {len(extracted_figures)} figures. Classifying...")
+        status_text.text(f"🔍 Found {len(extracted_figures)} figures. Starting classification...")
 
-        # Classify figures using AI with rate limiting protection
+        # Classify figures using AI with enhanced progress tracking
         classification_results = []
+        
         for i, figure_data in enumerate(extracted_figures):
-            status_text.text(
-                f"Classifying figure {i + 1}/{len(extracted_figures)} using AI..."
-            )
-
-            classification_result = classifier.classify_figure(
-                figure_data['image'])
-            classification_results.append({
-                'figure_id':
-                i,
-                'classification':
-                classification_result['classification'],
-                'confidence':
-                classification_result['confidence'],
-                'description':
-                classification_result['description'],
-                'details':
-                classification_result.get('details', {}),
-                'reasoning':
-                classification_result.get('reasoning', ''),
-                'page':
-                figure_data['page'],
-                'bbox':
-                figure_data['bbox']
-            })
-
-            # Update progress
-            progress = 50 + (i + 1) * 40 / len(extracted_figures)
-            progress_bar.progress(int(progress))
+            # Update progress for each figure
+            current_progress = 50 + (i * 40) // len(extracted_figures)
+            progress_bar.progress(current_progress)
+            
+            status_text.text(f"🔍 Classifying figure {i + 1}/{len(extracted_figures)}...")
+            
+            try:
+                classification_result = classifier.classify_figure(figure_data['image'])
+                
+                # Add metadata
+                classification_result.update({
+                    'figure_id': i,
+                    'page': figure_data['page'],
+                    'bbox': figure_data['bbox']
+                })
+                
+                classification_results.append(classification_result)
+                
+            except Exception as e:
+                st.warning(f"⚠️ Error classifying figure {i + 1}: {str(e)}")
+                # Add fallback result
+                classification_results.append({
+                    'figure_id': i,
+                    'classification': 'unknown',
+                    'confidence': 0.1,
+                    'description': f'Classification failed: {str(e)}',
+                    'details': {},
+                    'reasoning': 'Error during classification',
+                    'method': 'error',
+                    'page': figure_data['page'],
+                    'bbox': figure_data['bbox']
+                })
 
         progress_bar.progress(100)
-        status_text.text("Processing complete!")
+        status_text.text("✅ Processing complete!")
 
         # Store results in session state
         st.session_state.extracted_figures = extracted_figures
@@ -189,14 +267,28 @@ def process_pdf(uploaded_file, from_url=False, url=None):
         progress_bar.empty()
         status_text.empty()
 
+        # Show completion message
         source_info = f"from URL: {url}" if from_url else "from uploaded file"
-        st.success(
-            f"Successfully extracted and classified {len(extracted_figures)} figures {source_info}!"
-        )
+        
+        # Count successful classifications
+        successful_classifications = sum(1 for r in classification_results if r.get('method') != 'error')
+        
+        if successful_classifications == len(extracted_figures):
+            st.success(f"✅ Successfully extracted and classified {len(extracted_figures)} figures {source_info}!")
+        else:
+            st.warning(f"⚠️ Extracted {len(extracted_figures)} figures, successfully classified {successful_classifications} {source_info}")
+        
+        # Show classification method summary
+        ai_count = sum(1 for r in classification_results if r.get('method') == 'gemini_api')
+        heuristic_count = sum(1 for r in classification_results if r.get('method') == 'heuristic')
+        
+        if ai_count > 0:
+            st.info(f"🤖 AI classifications: {ai_count}, 🔧 Heuristic classifications: {heuristic_count}")
+        
         st.rerun()
 
     except Exception as e:
-        st.error(f"Error processing PDF: {str(e)}")
+        st.error(f"❌ Error processing PDF: {str(e)}")
         if 'tmp_file_path' in locals():
             try:
                 os.unlink(tmp_file_path)
@@ -207,402 +299,121 @@ def process_pdf(uploaded_file, from_url=False, url=None):
 def validate_pdf_url(url):
     """Validate a PDF URL without downloading."""
     try:
-        downloader = PDFDownloader()
-        file_info = downloader.get_file_info_from_url(url)
+        with st.spinner("Validating URL..."):
+            downloader = PDFDownloader()
+            file_info = downloader.get_file_info_from_url(url)
 
-        if file_info is None:
-            st.error(
-                "Could not access the URL. Please check if it's valid and accessible."
-            )
-            return
+            if file_info is None:
+                st.error("❌ Could not access the URL. Please check if it's valid and accessible.")
+                return
 
-        if not file_info['is_pdf']:
-            st.error("The URL does not point to a PDF file.")
-            return
+            if not file_info['is_pdf']:
+                st.error("❌ The URL does not point to a PDF file.")
+                return
 
-        # Display file information
-        st.success("✅ Valid PDF URL!")
-        st.info(f"""
-        **File Information:**
-        - Size: {file_info['file_size_mb']} MB
-        - Content Type: {file_info['content_type']}
-        - URL: {file_info['url']}
-        """)
+            # Display file information
+            st.success("✅ Valid PDF URL!")
+            st.info(f"""
+            **File Information:**
+            - Size: {file_info['file_size_mb']} MB
+            - Content Type: {file_info['content_type']}
+            - URL: {file_info['url']}
+            """)
 
     except Exception as e:
-        st.error(f"Error validating URL: {str(e)}")
+        st.error(f"❌ Error validating URL: {str(e)}")
 
 
 def process_pdf_from_url(url):
     """Process a PDF file from a URL."""
     try:
-        # Download PDF from URL
-        downloader = PDFDownloader()
-        tmp_file_path = downloader.download_pdf_from_url(url)
+        with st.spinner("Downloading PDF from URL..."):
+            # Download PDF from URL
+            downloader = PDFDownloader()
+            tmp_file_path = downloader.download_pdf_from_url(url)
 
-        # Create a mock uploaded file object for compatibility
-        with open(tmp_file_path, 'rb') as f:
-            pdf_content = f.read()
+            # Create a mock uploaded file object for compatibility
+            with open(tmp_file_path, 'rb') as f:
+                pdf_content = f.read()
 
-        class MockUploadedFile:
+            class MockUploadedFile:
+                def __init__(self, content, name):
+                    self.content = content
+                    self.name = name
 
-            def __init__(self, content, name):
-                self.content = content
-                self.name = name
+                def getvalue(self):
+                    return self.content
 
-            def getvalue(self):
-                return self.content
+            mock_file = MockUploadedFile(pdf_content, url.split('/')[-1])
 
-        mock_file = MockUploadedFile(pdf_content, url.split('/')[-1])
+            # Process the downloaded PDF
+            process_pdf(mock_file, from_url=True, url=url)
 
-        # Process the downloaded PDF
-        process_pdf(mock_file, from_url=True, url=url)
-
-        # Clean up
-        os.unlink(tmp_file_path)
+            # Clean up
+            os.unlink(tmp_file_path)
 
     except Exception as e:
-        st.error(f"Error processing PDF from URL: {str(e)}")
+        st.error(f"❌ Error processing PDF from URL: {str(e)}")
 
 
 def display_welcome_screen():
     """Display welcome screen with instructions."""
     st.markdown("""
-    ## Welcome to the FigSense
+    ## 🚀 Welcome to FigSense
     
-    This tool helps you:
-    - 📄 Upload PDF documents
-    - 🖼️ Extract all figures and images
-    - 🔍 Classify figure types automatically
-    - 📊 View comprehensive analysis
-    - 💾 Download individual figures or all as ZIP
+    This AI-powered tool helps you:
+    - 📄 Upload PDF documents or provide URLs
+    - 🖼️ Extract all figures and images automatically
+    - 🤖 Classify figure types using advanced AI
+    - 📊 View comprehensive analysis and statistics
+    - 💾 Download individual figures or complete ZIP archives
     - 📄 Generate detailed PDF analysis reports
     
-    ### Supported Figure Types (AI-Powered Classification):
-    - **Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
-    - **Diagrams**: Flowcharts, organizational charts, network diagrams, scientific diagrams
-    - **Technical**: Engineering diagrams, medical diagrams, floor plans
-    - **Images**: Photographs, screenshots, logos, infographics
-    - **Data**: Tables, timelines, and other data visualizations
-    - **Maps**: Geographic maps, spatial representations
+    ### 🎯 Supported Figure Types (AI-Powered Classification):
+    - **📊 Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
+    - **🔄 Diagrams**: Flowcharts, organizational charts, network diagrams, scientific diagrams
+    - **🔧 Technical**: Engineering diagrams, medical diagrams, floor plans
+    - **📷 Images**: Photographs, screenshots, logos, infographics
+    - **📋 Data**: Tables, timelines, and other data visualizations
+    - **🗺️ Maps**: Geographic maps, spatial representations
     
-    ### How to Use:
-    **Step 1: API Key (Optional but Recommended)**
-    1. Expand the "Gemini API Key" section in the sidebar
-    2. Enter your own API key for better rate limits
-    3. Get a free key from: https://aistudio.google.com/app/apikey
+    ### 📋 How to Use:
     
-    **Step 2: Upload PDF**
-    **Option A: Upload from Computer**
+    **Step 1: Configure API Key (Recommended)**
+    1. 🔑 Expand the "Gemini API Key" section in the sidebar
+    2. 🌐 Get a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+    3. 📝 Paste your API key and click "Test API Key"
+    4. 💾 Click "Save Key" when validation succeeds
+    
+    **Step 2: Upload or Link Your PDF**
+    
+    **📁 Option A: Upload from Computer**
     1. Click "Choose a PDF file" in the Upload File tab
     2. Select your PDF document
     3. Click "Process Uploaded PDF" to start extraction
     
-    **Option B: Use URL**
+    **🔗 Option B: Use URL**
     1. Switch to the "From URL" tab
     2. Enter the direct URL to a PDF file
-    3. Click "Validate URL" to check if it's valid
-    4. Click "Process PDF from URL" to start extraction
+    3. Click "Validate URL" to verify accessibility
+    4. Click "Process PDF" to start extraction
     
-    **After Processing:**
-    - View results with AI-powered classifications
-    - See detailed descriptions and confidence scores
-    - Download individual figures or all as ZIP
-    - Generate comprehensive PDF analysis report
+    **Step 3: View Results**
+    - 📊 See AI-powered classifications with confidence scores
+    - 📈 View statistics and figure type distribution
+    - 💾 Download individual figures or complete archives
+    - 📄 Generate comprehensive analysis reports
     
-    Get started by uploading a PDF file!
-    """)
-
-
-def display_results():
-    """Display the extracted figures and classification results."""
-    figures = st.session_state.extracted_figures
-    classifications = st.session_state.classification_results
-
-    # Statistics summary
-    st.header("📈 Analysis Summary")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Figures", len(figures))
-    with col2:
-        unique_types = len(set(c['classification'] for c in classifications))
-        st.metric("Figure Types", unique_types)
-    with col3:
-        avg_confidence = sum(c['confidence']
-                             for c in classifications) / len(classifications)
-        st.metric("Avg Confidence", f"{avg_confidence:.1%}")
-
-    # Figure type distribution
-    st.subheader("Figure Type Distribution")
-    type_counts = {}
-    for classification in classifications:
-        fig_type = classification['classification']
-        type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
-
-    # Create distribution chart
-    df_types = pd.DataFrame(list(type_counts.items()),
-                            columns=['Type', 'Count'])
-    st.bar_chart(df_types.set_index('Type'))
-
-    # Download options
-    st.subheader("Download Options")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("📦 Download All Figures as ZIP"):
-            zip_buffer = create_zip_download(figures, classifications)
-            st.download_button(label="Download ZIP",
-                               data=zip_buffer,
-                               file_name="extracted_figures.zip",
-                               mime="application/zip")
-
-    with col2:
-        if st.button("📄 Generate Analysis Report"):
-            generate_pdf_report(figures, classifications)
-
-    # Display individual figures
-    st.header("🖼️ Extracted Figures")
-
-    # Filter options
-    col1, col2 = st.columns(2)
-    with col1:
-        filter_type = st.selectbox("Filter by type:",
-                                   ['All'] + sorted(list(type_counts.keys())))
-    with col2:
-        sort_by = st.selectbox("Sort by:",
-                               ['Page Number', 'Confidence', 'Figure Type'])
-
-    # Filter and sort figures
-    filtered_results = classifications
-    if filter_type != 'All':
-        filtered_results = [
-            c for c in classifications if c['classification'] == filter_type
-        ]
-
-    if sort_by == 'Page Number':
-        filtered_results.sort(key=lambda x: x['page'])
-    elif sort_by == 'Confidence':
-        filtered_results.sort(key=lambda x: x['confidence'], reverse=True)
-    elif sort_by == 'Figure Type':
-        filtered_results.sort(key=lambda x: x['classification'])
-
-    # Display figures in grid
-    cols_per_row = 2
-    for i in range(0, len(filtered_results), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j in range(cols_per_row):
-            if i + j < len(filtered_results):
-                result = filtered_results[i + j]
-                figure_data = figures[result['figure_id']]
-
-                with cols[j]:
-                    display_figure_card(figure_data, result)
-
-
-def display_figure_card(figure_data, classification_result):
-    """Display a single figure card with classification info."""
-    with st.container():
-        # Get emoji and formatted name for the figure type
-        emoji = get_figure_type_emoji(classification_result['classification'])
-        formatted_type = format_figure_type(
-            classification_result['classification'])
-
-        st.image(
-            figure_data['image'],
-            caption=
-            f"Page {classification_result['page']} - {emoji} {formatted_type}",
-            use_container_width=True)
-
-        # Figure details with enhanced information
-        confidence_color = "🟢" if classification_result[
-            'confidence'] > 0.8 else "🟡" if classification_result[
-                'confidence'] > 0.6 else "🔴"
-
-        st.markdown(f"""
-        **Type:** {emoji} {formatted_type}  
-        **Confidence:** {confidence_color} {classification_result['confidence']:.1%}  
-        **Page:** {classification_result['page']}  
-        **Description:** {classification_result.get('description', 'No description available')}
-        """)
-
-        # Show additional details if available
-        if classification_result.get('details'):
-            details = classification_result['details']
-            if details.get('visual_elements'):
-                st.caption(
-                    f"Visual Elements: {', '.join(details['visual_elements'])}"
-                )
-
-        # Expandable section for AI reasoning
-        if classification_result.get('reasoning'):
-            with st.expander("AI Classification Reasoning"):
-                st.write(classification_result['reasoning'])
-
-        # Download button for individual figure
-        img_buffer = io.BytesIO()
-        figure_data['image'].save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-
-        st.download_button(
-            label="Download Figure",
-            data=img_buffer,
-            file_name=
-            f"figure_page_{classification_result['page']}_{classification_result['figure_id']}.png",
-            mime="image/png",
-            key=f"download_{classification_result['figure_id']}")
-
-
-def create_zip_download(figures, classifications):
-    """Create a ZIP file containing all extracted figures."""
-    zip_buffer = io.BytesIO()
-
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # Create summary CSV
-        summary_data = []
-        for i, (figure,
-                classification) in enumerate(zip(figures, classifications)):
-            summary_data.append({
-                'Figure ID': i,
-                'Filename': f"figure_page_{classification['page']}_{i}.png",
-                'Type': classification['classification'],
-                'Confidence': f"{classification['confidence']:.1%}",
-                'Page': classification['page']
-            })
-
-        df_summary = pd.DataFrame(summary_data)
-        csv_buffer = io.StringIO()
-        df_summary.to_csv(csv_buffer, index=False)
-        zip_file.writestr('figure_summary.csv', csv_buffer.getvalue())
-
-        # Add individual figures
-        for i, (figure,
-                classification) in enumerate(zip(figures, classifications)):
-            img_buffer = io.BytesIO()
-            figure['image'].save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-
-            filename = f"figure_page_{classification['page']}_{i}.png"
-            zip_file.writestr(filename, img_buffer.getvalue())
-
-    zip_buffer.seek(0)
-    return zip_buffer
-
-
-def generate_pdf_report(figures, classifications):
-    """Generate and provide download for PDF analysis report."""
-    progress_bar = None
-    status_text = None
-
-    try:
-        # Show progress
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        status_text.text("Generating comprehensive PDF report...")
-        progress_bar.progress(25)
-
-        # Validate input data
-        if not figures or not classifications:
-            st.error("No figures or classifications found to generate report.")
-            return
-
-        # Initialize report generator
-        report_generator = PDFReportGenerator()
-
-        progress_bar.progress(50)
-        status_text.text("Creating report content...")
-
-        # Generate report with better error handling
-        source_info = st.session_state.get('source_info', 'PDF Document')
-
-        try:
-            pdf_buffer = report_generator.create_summary_buffer(
-                figures, classifications, source_info)
-        except Exception as report_error:
-            st.error(f"Error creating report content: {str(report_error)}")
-            # Try to create a simplified report
-            st.warning("Attempting to create simplified report...")
-            try:
-                # Create minimal report with text only
-                from io import BytesIO
-                pdf_buffer = BytesIO()
-                # Simple fallback: create a basic text summary
-                summary_text = f"""
-                PDF Figure Analysis Report
-                Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                Source: {source_info}
-                
-                Summary:
-                - Total figures extracted: {len(figures)}
-                - Total classifications: {len(classifications)}
-                
-                Figure Types Found:
-                """
-
-                type_counts = {}
-                for classification in classifications:
-                    fig_type = classification['classification']
-                    type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
-
-                for fig_type, count in type_counts.items():
-                    summary_text += f"- {fig_type}: {count}\n"
-
-                # Create a simple text file as fallback
-                pdf_buffer.write(summary_text.encode('utf-8'))
-                pdf_buffer.seek(0)
-
-                st.warning(
-                    "Created simplified text report due to PDF generation issues."
-                )
-
-            except Exception as fallback_error:
-                st.error(f"Could not create report: {str(fallback_error)}")
-                return
-
-        progress_bar.progress(75)
-        status_text.text("Finalizing report...")
-
-        # Generate filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"figure_analysis_report_{timestamp}.pdf"
-
-        progress_bar.progress(100)
-        status_text.text("Report ready for download!")
-
-        # Provide download button
-        st.download_button(
-            label="📄 Download Analysis Report (PDF)",
-            data=pdf_buffer,
-            file_name=filename,
-            mime="application/pdf",
-            help=
-            "Complete analysis report with figure thumbnails, statistics, and detailed descriptions"
-        )
-
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
-
-        st.success(
-            "PDF report generated successfully! Click the download button above."
-        )
-
-    except Exception as e:
-        st.error(f"Error generating PDF report: {str(e)}")
-        st.info("Please try again or contact support if the issue persists.")
-
-    finally:
-        # Clear progress indicators on any exit
-        try:
-            if progress_bar is not None:
-                progress_bar.empty()
-            if status_text is not None:
-                status_text.empty()
-        except:
-            pass
-
-
-if __name__ == "__main__":
-    main()
+    ---
+    
+    ### 🔧 Classification Methods:
+    
+    **🤖 AI Classification (Recommended)**
+    - Uses Google's Gemini AI model
+    - High accuracy and detailed descriptions
+    - Requires valid API key
+    - Provides confidence scores and reasoning
+    
+    **🔧 Heuristic Classification (Fallback)**
+    - Uses image analysis algorithms
+    -
