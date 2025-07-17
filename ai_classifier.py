@@ -97,8 +97,8 @@ class AIFigureClassifier:
                         'details': result.get('details', {}),
                         'reasoning': result.get('reasoning', '')
                     }
-            else:
-                return self._fallback_classification(image)
+            self.logger.warning("Empty or invalid response from Gemini.")
+            return self._fallback_classification(image)
 
                     
             except Exception as e:
