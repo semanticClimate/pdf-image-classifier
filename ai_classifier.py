@@ -8,7 +8,6 @@ import random
 import numpy as np
 from PIL import Image
 import google.generativeai as genai
-from google.generativeai import types
 
 
 class AIFigureClassifier:
@@ -78,7 +77,7 @@ class AIFigureClassifier:
                 
                 # Call Gemini API
                 response = self.model.generate_content([
-                    types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                    image_bytes,
                     prompt
                 ])
                 
