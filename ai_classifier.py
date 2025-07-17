@@ -69,11 +69,16 @@ class AIFigureClassifier:
                 # Create the classification prompt
                 prompt = self._create_classification_prompt()
                 
-                # Call Gemini API
+                img_buffer = io.BytesIO()
+                image.save(img_buffer, format='PNG')
+                img_buffer.seek(0)
+                image_bytes = img_buffer.read()
+
                 response = self.model.generate_content([
-                    prompt,
-                    image
+                    {"mime_type": "image/png", "data": image_bytes},
+                    prompt
                 ])
+
                 
                 if response.text:
                     result = json.loads(response.text)
