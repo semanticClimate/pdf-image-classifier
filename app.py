@@ -415,5 +415,4 @@ def display_welcome_screen():
     - Provides confidence scores and reasoning
     
     **🔧 Heuristic Classification (Fallback)**
-    - Uses image analysis algorithms
-    -
+    - Uses image analysis algorithms""")
