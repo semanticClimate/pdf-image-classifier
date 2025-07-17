@@ -66,19 +66,13 @@ class AIFigureClassifier:
         
         for attempt in range(max_retries):
             try:
-                # Convert PIL image to bytes
-                img_buffer = io.BytesIO()
-                image.save(img_buffer, format='PNG')
-                img_buffer.seek(0)
-                image_bytes = img_buffer.read()
-                
                 # Create the classification prompt
                 prompt = self._create_classification_prompt()
                 
                 # Call Gemini API
                 response = self.model.generate_content([
-                    image_bytes,
-                    prompt
+                    prompt,
+                    image
                 ])
                 
                 if response.text:
