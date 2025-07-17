@@ -80,8 +80,13 @@ class AIFigureClassifier:
                 ])
 
                 
-                if response.text:
-                    result = json.loads(response.text)
+                if response.text and response.text.strip().startswith("{"):
+                    try:
+                        result = json.loads(response.text)
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"JSON parsing failed: {e}")
+                        return self._fallback_classification(image)
+                        
                     # Handle both dict and list responses
                     if isinstance(result, list) and len(result) > 0:
                         result = result[0]
