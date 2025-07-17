@@ -14,7 +14,7 @@ runButton = "Project"
 [[workflows.workflow]]
 name = "Project"
 mode = "parallel"
-author = "agent"
+author = "Avika Joshi"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -22,7 +22,7 @@ args = "Streamlit App"
 
 [[workflows.workflow]]
 name = "Streamlit App"
-author = "agent"
+author = "Joshi"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
