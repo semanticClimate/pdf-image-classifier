@@ -1,4 +1,5 @@
 import os
+os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
 import json
 import logging
 import base64
