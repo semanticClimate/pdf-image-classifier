@@ -20,7 +20,7 @@ class AIFigureClassifier:
         if not self.api_key:
             raise ValueError("No Gemini API key provided. Please provide one via parameter or environment variable.")
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-pro-vision")
+        self.model = genai.GenerativeModel("gemini-1.5-flash")
         self.confidence_score = 0.0
         
         # Define comprehensive figure categories
