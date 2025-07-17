@@ -416,4 +416,4 @@ def display_welcome_screen():
     
     **🔧 Heuristic Classification (Fallback)**
     - Uses image analysis algorithms
-    -
+    -""")
