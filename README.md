@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 What It Does
+## What It Does
 
 - Upload a PDF or paste a link  
 - Auto-detects charts, tables, maps & more  
