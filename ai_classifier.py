@@ -20,7 +20,8 @@ class AIFigureClassifier:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("No Gemini API key provided. Please provide one via parameter or environment variable.")
-        self.client = genai.Client(api_key=self.api_key)
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel("gemini-pro-vision")
         self.confidence_score = 0.0
         
         # Define comprehensive figure categories
@@ -76,19 +77,10 @@ class AIFigureClassifier:
                 prompt = self._create_classification_prompt()
                 
                 # Call Gemini API
-                response = self.client.models.generate_content(
-                    model="gemini-2.0-flash-exp",
-                    contents=[
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type="image/png",
-                        ),
-                        prompt
-                    ],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                    ),
-                )
+                response = self.model.generate_content([
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                    prompt
+                ])
                 
                 if response.text:
                     result = json.loads(response.text)
