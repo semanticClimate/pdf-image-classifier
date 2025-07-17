@@ -7,6 +7,7 @@ import random
 import numpy as np
 from PIL import Image
 import google.generativeai as genai
+import streamlit as st
 
 
 class AIFigureClassifier:
@@ -15,11 +16,31 @@ class AIFigureClassifier:
     def __init__(self, api_key=None):
         self.logger = logging.getLogger(__name__)
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        if not self.api_key:
-            raise ValueError("No Gemini API key provided.")
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.model = None
         self.confidence_score = 0.0
+        self.api_configured = False
+
+        # Try to configure Gemini API
+        if self.api_key:
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel("gemini-1.5-flash")
+                
+                # Test the API with a simple request
+                test_response = self.model.generate_content("Test connection")
+                self.api_configured = True
+                self.logger.info("Gemini API configured successfully")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to configure Gemini API: {str(e)}")
+                self.api_configured = False
+                if "API_KEY_INVALID" in str(e) or "401" in str(e):
+                    raise ValueError(f"Invalid Gemini API key: {str(e)}")
+                else:
+                    st.warning(f"Gemini API configuration failed: {str(e)}. Using fallback classification.")
+        else:
+            self.logger.warning("No Gemini API key provided. Using fallback classification only.")
+            st.warning("⚠️ No Gemini API key provided. Using basic heuristic classification. For better results, please provide a valid Gemini API key.")
 
         self.figure_categories = {
             "bar_chart": "Bar Chart - Shows data using rectangular bars",
@@ -48,19 +69,35 @@ class AIFigureClassifier:
             "unknown": "Unknown - Cannot determine figure type"
         }
 
+    def is_api_available(self):
+        """Check if Gemini API is properly configured and available."""
+        return self.api_configured and self.model is not None
+
     def classify_figure(self, image):
+        """Classify a figure using Gemini API or fallback to heuristic method."""
+        
+        # If API is not configured, use fallback immediately
+        if not self.is_api_available():
+            st.info("🔄 Using heuristic classification (no API key provided)")
+            return self._fallback_classification(image)
+
+        # Try Gemini API classification
         max_retries = 3
         base_delay = 1.0
 
         for attempt in range(max_retries):
             try:
+                st.info(f"🤖 Using Gemini AI for classification (attempt {attempt + 1})")
+                
                 prompt = self._create_classification_prompt()
 
+                # Prepare image
                 img_buffer = io.BytesIO()
                 image.save(img_buffer, format='PNG')
                 img_buffer.seek(0)
                 img = Image.open(img_buffer).convert("RGB")
 
+                # Make API request
                 response = self.model.generate_content([prompt, img])
 
                 if response.text and response.text.strip().startswith("{"):
@@ -68,6 +105,7 @@ class AIFigureClassifier:
                         result = json.loads(response.text)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing failed: {e}")
+                        st.warning("⚠️ API response parsing failed, using fallback")
                         return self._fallback_classification(image)
 
                     if isinstance(result, list) and len(result) > 0:
@@ -75,36 +113,49 @@ class AIFigureClassifier:
 
                     self.confidence_score = result.get('confidence', 0.5)
 
+                    st.success("✅ AI classification successful!")
                     return {
                         'classification': result.get('type', 'unknown'),
                         'confidence': self.confidence_score,
                         'description': result.get('description', 'No description available'),
                         'details': result.get('details', {}),
-                        'reasoning': result.get('reasoning', '')
+                        'reasoning': result.get('reasoning', ''),
+                        'method': 'gemini_api'
                     }
 
-                self.logger.warning("Empty or invalid response from Gemini.")
+                st.warning("⚠️ Empty response from Gemini API, using fallback")
                 return self._fallback_classification(image)
 
             except Exception as e:
                 error_msg = str(e)
                 self.logger.error(f"AI classification attempt {attempt + 1} failed: {error_msg}")
-
+                
+                # Handle specific error types
                 if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                        self.logger.info(f"Rate limit hit, retrying in {delay:.2f}s...")
+                        st.warning(f"⏳ Rate limit hit, retrying in {delay:.1f}s...")
                         time.sleep(delay)
                         continue
                     else:
-                        self.logger.error("Rate limit exceeded. Fallback activated.")
+                        st.error("❌ Rate limit exceeded. Using fallback classification.")
                         return self._fallback_classification(image)
-                elif "400" in error_msg and ("API_KEY_INVALID" in error_msg or "expired" in error_msg.lower()):
-                    self.logger.error("Invalid/expired API key.")
+                        
+                elif "400" in error_msg or "401" in error_msg or "403" in error_msg:
+                    st.error("❌ API key invalid or expired. Using fallback classification.")
+                    self.api_configured = False  # Disable API for future calls
                     return self._fallback_classification(image)
+                    
+                elif "SAFETY" in error_msg:
+                    st.warning("⚠️ Content filtered by safety settings. Using fallback classification.")
+                    return self._fallback_classification(image)
+                    
                 else:
+                    st.warning(f"⚠️ API error: {error_msg}. Using fallback classification.")
                     return self._fallback_classification(image)
 
+        # If all retries failed, use fallback
+        st.warning("⚠️ All API attempts failed. Using fallback classification.")
         return self._fallback_classification(image)
 
     def _create_classification_prompt(self):
@@ -137,35 +188,93 @@ class AIFigureClassifier:
         """
 
     def _fallback_classification(self, image=None):
+        """Enhanced fallback classification using image analysis heuristics."""
         try:
             if image is not None:
                 img_array = np.array(image)
                 height, width = img_array.shape[:2]
                 aspect_ratio = width / height
 
+                # Convert to grayscale for analysis
+                if len(img_array.shape) == 3:
+                    gray = np.dot(img_array[...,:3], [0.2989, 0.5870, 0.1140])
+                else:
+                    gray = img_array
+
+                # Calculate various metrics
+                std_intensity = np.std(gray)
+                mean_intensity = np.mean(gray)
+                
+                # Color analysis if available
                 if len(img_array.shape) == 3:
                     std_color = np.std(img_array)
+                    color_variance = np.var(img_array, axis=(0, 1)).mean()
+                else:
+                    std_color = std_intensity
+                    color_variance = 0
 
-                    if aspect_ratio > 2:
-                        classification = 'timeline'
+                # Enhanced heuristic classification
+                if aspect_ratio > 3:
+                    classification = 'timeline'
+                    confidence = 0.7
+                    description = 'Very wide layout suggests timeline or horizontal process'
+                    
+                elif aspect_ratio > 2:
+                    classification = 'timeline'
+                    confidence = 0.6
+                    description = 'Wide layout suggests timeline or process flow'
+                    
+                elif 0.8 <= aspect_ratio <= 1.2:  # Square-ish
+                    if std_color > 80:
+                        classification = 'pie_chart'
                         confidence = 0.6
-                        description = 'Wide layout suggests timeline or process flow'
-                    elif 0.8 <= aspect_ratio <= 1.2 and std_color > 50:
+                        description = 'Square, colorful layout suggests pie chart or similar'
+                    elif std_color > 50:
                         classification = 'chart_other'
                         confidence = 0.5
-                        description = 'Square, colorful — likely a chart or graph'
-                    elif std_color > 80:
-                        classification = 'photograph'
-                        confidence = 0.4
-                        description = 'High color variance — likely real-world image'
+                        description = 'Square layout with moderate color variation suggests chart'
                     else:
                         classification = 'diagram_other'
                         confidence = 0.4
-                        description = 'Likely a simple diagram or illustration'
-                else:
-                    classification = 'diagram_other'
-                    confidence = 0.3
-                    description = 'Grayscale layout — probably a diagram'
+                        description = 'Square, simple layout suggests diagram'
+                        
+                elif aspect_ratio > 1.5:  # Wide
+                    if std_color > 60:
+                        classification = 'bar_chart'
+                        confidence = 0.6
+                        description = 'Wide, colorful layout suggests bar chart'
+                    else:
+                        classification = 'flowchart'
+                        confidence = 0.5
+                        description = 'Wide layout suggests flowchart or process diagram'
+                        
+                elif aspect_ratio < 0.7:  # Tall
+                    if std_color > 60:
+                        classification = 'bar_chart'
+                        confidence = 0.5
+                        description = 'Tall, colorful layout suggests vertical bar chart'
+                    else:
+                        classification = 'organizational_chart'
+                        confidence = 0.5
+                        description = 'Tall layout suggests organizational chart or hierarchy'
+                        
+                else:  # Regular proportions
+                    if std_color > 100:
+                        classification = 'photograph'
+                        confidence = 0.6
+                        description = 'High color variance suggests photograph'
+                    elif std_color > 70:
+                        classification = 'chart_other'
+                        confidence = 0.5
+                        description = 'Moderate color variance suggests chart or graph'
+                    elif mean_intensity > 200:
+                        classification = 'screenshot'
+                        confidence = 0.4
+                        description = 'High brightness suggests screenshot'
+                    else:
+                        classification = 'diagram_other'
+                        confidence = 0.4
+                        description = 'Basic characteristics suggest diagram'
 
                 self.confidence_score = confidence
                 return {
@@ -173,20 +282,25 @@ class AIFigureClassifier:
                     'confidence': confidence,
                     'description': description,
                     'details': {
-                        'visual_elements': ['basic analysis'],
+                        'visual_elements': ['heuristic analysis'],
                         'aspect_ratio': f'{aspect_ratio:.2f}',
-                        'analysis_method': 'local fallback'
+                        'color_variance': f'{color_variance:.1f}',
+                        'intensity_std': f'{std_intensity:.1f}',
+                        'analysis_method': 'heuristic fallback'
                     },
-                    'reasoning': 'Used local heuristic due to API failure.'
+                    'reasoning': f'Used heuristic analysis: aspect ratio {aspect_ratio:.2f}, color variance {color_variance:.1f}',
+                    'method': 'heuristic'
                 }
 
+            # If no image provided
             self.confidence_score = 0.3
             return {
                 'classification': 'unknown',
                 'confidence': 0.3,
                 'description': 'Figure present, classification unavailable',
                 'details': {},
-                'reasoning': 'Fallback: no API or error occurred.'
+                'reasoning': 'No image data available for analysis',
+                'method': 'fallback'
             }
 
         except Exception as e:
@@ -194,9 +308,10 @@ class AIFigureClassifier:
             return {
                 'classification': 'unknown',
                 'confidence': 0.2,
-                'description': 'Figure detected but fallback failed',
+                'description': 'Figure detected but analysis failed',
                 'details': {},
-                'reasoning': f'Fallback error: {str(e)}'
+                'reasoning': f'Fallback error: {str(e)}',
+                'method': 'error_fallback'
             }
 
     def get_supported_categories(self):
@@ -206,13 +321,15 @@ class AIFigureClassifier:
         return self.confidence_score
 
     def batch_classify(self, images, progress_callback=None):
+        """Classify multiple images with progress tracking."""
         results = []
         total = len(images)
 
         for i, image in enumerate(images):
-            result = self.classify_figure(image)
-            results.append(result)
             if progress_callback:
                 progress_callback(i + 1, total)
+            
+            result = self.classify_figure(image)
+            results.append(result)
 
         return results
