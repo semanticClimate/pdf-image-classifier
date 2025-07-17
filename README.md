@@ -1,4 +1,4 @@
-# 🧠 FigSense
+# 🧠 FigSense by Avika Joshi
 
 **FigSense** is a simple web app to extract and understand visuals from any PDF — fast.
 
