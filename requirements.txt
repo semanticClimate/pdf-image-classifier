@@ -1,11 +1,13 @@
 streamlit
+PyMuPDF
+Pillow
 opencv-python
+google-generativeai
 numpy
 pandas
-Pillow
-PyMuPDF
-reportlab
 requests
+urllib3
+reportlab
 scikit-learn
 joblib
-google-generativeai
+trafilatura
