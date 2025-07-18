@@ -7,8 +7,8 @@ import time
 import random
 import numpy as np
 from PIL import Image
-from google import genai
-from google.genai import types
+from google import generative-ai
+from google.generative-ai import types
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
