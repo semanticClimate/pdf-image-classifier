@@ -338,9 +338,17 @@ def display_results():
         type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
 
     # Create distribution chart
-    df_types = pd.DataFrame(list(type_counts.items()),
-                            columns=['Type', 'Count'])
-    st.bar_chart(df_types.set_index('Type'))
+    # Assuming type_counts is a dictionary like {'bar_chart': 1, 'diagram_other': 1, 'timeline': 4}
+    df_types = pd.DataFrame(list(type_counts.items()), columns=['Type', 'Count'])
+
+    # Altair chart with horizontal x-axis labels
+    chart = alt.Chart(df_types).mark_bar().encode(
+        x=alt.X('Type:N', axis=alt.Axis(labelAngle=0)),  # 👈 This makes labels horizontal
+        y='Count:Q'
+    ).properties(
+        title='Figure Type Distribution')
+    st.altair_chart(chart, use_container_width=True)
+
 
     # Download options
     st.subheader("Download Options")
