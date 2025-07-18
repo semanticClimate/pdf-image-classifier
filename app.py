@@ -346,7 +346,7 @@ def display_results():
         x=alt.X('Type:N', axis=alt.Axis(labelAngle=0)),  # 👈 This makes labels horizontal
         y='Count:Q'
     ).properties(
-        title='Figure Type Distribution')
+        title='')
     st.altair_chart(chart, use_container_width=True)
 
 
