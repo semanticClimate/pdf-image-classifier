@@ -5,6 +5,7 @@ import zipfile
 import io
 from datetime import datetime
 from PIL import Image
+import altair as alt
 import pandas as pd
 from figure_extractor import PDFFigureExtractor
 from ai_classifier import AIFigureClassifier
