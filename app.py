@@ -30,7 +30,7 @@ def main():
         page_icon="📊",
         layout="wide")
 
-    st.title("📊 FigSense: PDF Figure Extraction & Classification Tool by Avika Joshi")
+    st.title("📊 FigSense by Avika Joshi")
     st.markdown(
         "Upload a PDF document to automatically extract and classify all figures within it."
     )
