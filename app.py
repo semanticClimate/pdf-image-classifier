@@ -34,6 +34,7 @@ def main():
     st.markdown(
         "Upload a PDF document to automatically extract and classify all figures within it."
     )
+    st.markdown("For queries contact me at contactavikajoshi@gmail.com")
 
     # Sidebar for file upload and API key
     with st.sidebar:
