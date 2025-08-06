@@ -4,7 +4,7 @@ App URL: https://figsense.streamlit.app/
 
 **FigSense** is a simple web app to extract and understand visuals from any PDF — fast.
 
-DOI Zenodo badge: \<[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16752113.svg)](https://doi.org/10.5281/zenodo.16752113)\>
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16752113.svg)](https://doi.org/10.5281/zenodo.16752113)
 
 ---
 
